@@ -132,7 +132,23 @@ export default function PeladaManager() {
     guard(db.setPlayerAtivo(id, !cur.ativo));
   };
 
-  /* ---------- caixinha ---------- */
+  const editPlayer = (id, p) => {
+    setPlayers((ps) => ps.map((x) => (x.id === id ? { ...x, ...p } : x)));
+    guard(db.updatePlayer(id, p));
+  };
+  const removePlayer = (id) => {
+    setPlayers((ps) => ps.filter((x) => x.id !== id));
+    // remove das sessões abertas em memória também (já cascadeia no banco)
+    setGames((gs) => gs.map((g) => ({
+      ...g,
+      presentes: g.presentes.filter((x) => x.playerId !== id),
+      desistencias: g.desistencias.filter((x) => x.playerId !== id),
+      pagos: g.pagos.filter((x) => x !== id),
+      teams: g.teams ? { ...g.teams, A: g.teams.A.filter((x) => x !== id), B: g.teams.B.filter((x) => x !== id) } : g.teams,
+      goals: g.goals.filter((x) => x.playerId !== id),
+    })));
+    guard(db.deletePlayer(id));
+  };
   const addLancamento = ({ desc, valor, tipo }) => {
     const temp = { id: "tmp_" + uid(), date: new Date().toISOString(), desc, valor, tipo: tipo || "lancamento", sessionId: null };
     setCaixinha((c) => ({ saldo: c.saldo + valor, extrato: [temp, ...c.extrato] }));
@@ -272,7 +288,7 @@ export default function PeladaManager() {
             )}
             {tab === "temporada" && <Temporada games={games} players={players} caixinha={caixinha} />}
             {tab === "caixinha" && <Caixinha caixinha={caixinha} onAdd={addLancamento} onSetSaldo={setSaldoManual} />}
-            {tab === "elenco" && <Elenco players={players} games={games} onAdd={addPlayer} onToggle={toggleAtivo} />}
+            {tab === "elenco" && <Elenco players={players} games={games} onAdd={addPlayer} onToggle={toggleAtivo} onEdit={editPlayer} onRemove={removePlayer} />}
           </main>
           <BottomNav tab={tab} setTab={setTab} />
         </>
@@ -483,9 +499,10 @@ function Caixinha({ caixinha, onAdd, onSetSaldo }) {
 /* ============================================================
    ELENCO
    ============================================================ */
-function Elenco({ players, games, onAdd, onToggle }) {
+function Elenco({ players, games, onAdd, onToggle, onEdit, onRemove }) {
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({ nome: "", apelido: "", numero: "", goleiro: false });
+  const [editing, setEditing] = useState(null); // player sendo editado
 
   const stats = {}; players.forEach((p) => (stats[p.id] = { jogos: 0, gols: 0 }));
   games.filter((g) => g.jogoFinalizado).forEach((g) => {
@@ -509,6 +526,13 @@ function Elenco({ players, games, onAdd, onToggle }) {
   };
   const toggleAtivo = (id) => onToggle(id);
 
+  const openEdit = (p) => setEditing({ id: p.id, nome: p.nome || "", apelido: p.apelido, numero: p.numero ? String(p.numero) : "", goleiro: p.goleiro });
+  const saveEdit = () => {
+    if (!editing.apelido.trim()) return;
+    onEdit(editing.id, { nome: editing.nome.trim() || editing.apelido.trim(), apelido: editing.apelido.trim(), numero: editing.numero ? parseInt(editing.numero) : null, goleiro: editing.goleiro });
+    setEditing(null);
+  };
+
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
@@ -528,17 +552,35 @@ function Elenco({ players, games, onAdd, onToggle }) {
       )}
 
       <div className="text-xs disp tracking-widest mb-2" style={{ color: C.muted }}>ATIVOS · {ativos.length}</div>
-      <div className="space-y-2 mb-5">{ativos.map((p) => <PlayerRow key={p.id} p={p} st={stats[p.id]} onToggle={() => toggleAtivo(p.id)} />)}</div>
+      <div className="space-y-2 mb-5">{ativos.map((p) => <PlayerRow key={p.id} p={p} st={stats[p.id]} onToggle={() => toggleAtivo(p.id)} onEdit={() => openEdit(p)} />)}</div>
       {inativos.length > 0 && (
         <>
           <div className="text-xs disp tracking-widest mb-2" style={{ color: C.muted }}>INATIVOS · {inativos.length}</div>
-          <div className="space-y-2">{inativos.map((p) => <PlayerRow key={p.id} p={p} st={stats[p.id]} onToggle={() => toggleAtivo(p.id)} dim />)}</div>
+          <div className="space-y-2">{inativos.map((p) => <PlayerRow key={p.id} p={p} st={stats[p.id]} onToggle={() => toggleAtivo(p.id)} onEdit={() => openEdit(p)} dim />)}</div>
         </>
+      )}
+
+      {/* Modal de edição */}
+      {editing && (
+        <Modal onClose={() => setEditing(null)} title="Editar jogador">
+          <div className="space-y-3 mb-4">
+            <input value={editing.apelido} onChange={(e) => setEditing({ ...editing, apelido: e.target.value })} placeholder="Apelido *" className="w-full rounded-lg px-3 py-2.5 text-sm" style={{ background: C.bg, color: C.chalk, border: `1px solid ${C.line}` }} />
+            <input value={editing.nome} onChange={(e) => setEditing({ ...editing, nome: e.target.value })} placeholder="Nome completo" className="w-full rounded-lg px-3 py-2.5 text-sm" style={{ background: C.bg, color: C.chalk, border: `1px solid ${C.line}` }} />
+            <div className="flex gap-3">
+              <input value={editing.numero} onChange={(e) => setEditing({ ...editing, numero: e.target.value })} type="number" placeholder="Nº (opcional)" className="w-28 rounded-lg px-3 py-2.5 text-sm" style={{ background: C.bg, color: C.chalk, border: `1px solid ${C.line}` }} />
+              <button onClick={() => setEditing({ ...editing, goleiro: !editing.goleiro })} className="flex-1 rounded-lg text-sm font-600" style={{ background: editing.goleiro ? C.blue : C.surf2, color: editing.goleiro ? "#04121C" : C.muted }}>🧤 Goleiro fixo</button>
+            </div>
+          </div>
+          <button onClick={saveEdit} className="w-full py-3 rounded-xl disp font-700 mb-2" style={{ background: C.green, color: "#06231A" }}>Salvar alterações</button>
+          <div className="pt-3 mt-1" style={{ borderTop: `1px solid ${C.line}` }}>
+            <PlayerDeleteButton playerId={editing.id} onRemove={(id) => { onRemove(id); setEditing(null); }} />
+          </div>
+        </Modal>
       )}
     </div>
   );
 }
-function PlayerRow({ p, st, onToggle, dim }) {
+function PlayerRow({ p, st, onToggle, onEdit, dim }) {
   return (
     <div className="flex items-center gap-3 rounded-lg px-3 py-2.5" style={{ background: C.surf, border: `1px solid ${C.line}`, opacity: dim ? 0.55 : 1 }}>
       <div className="disp w-9 h-9 rounded-lg flex items-center justify-center text-sm font-700 shrink-0" style={{ background: C.surf2, color: p.numero ? C.chalk : C.muted }}>{p.numero ?? "—"}</div>
@@ -549,7 +591,28 @@ function PlayerRow({ p, st, onToggle, dim }) {
           <span>⚽ {st.gols} {st.gols === 1 ? "gol" : "gols"}</span>
         </div>
       </div>
-      <button onClick={onToggle} className="text-xs px-2 py-1 rounded" style={{ background: C.surf2, color: C.muted }}>{p.ativo ? "Arquivar" : "Reativar"}</button>
+      <div className="flex items-center gap-1.5">
+        <button onClick={onEdit} className="text-xs px-2 py-1 rounded" style={{ background: C.surf2, color: C.muted }}>✏️</button>
+        <button onClick={onToggle} className="text-xs px-2 py-1 rounded" style={{ background: C.surf2, color: C.muted }}>{p.ativo ? "Arquivar" : "Reativar"}</button>
+      </div>
+    </div>
+  );
+}
+
+function PlayerDeleteButton({ playerId, onRemove }) {
+  const [step, setStep] = useState(0);
+  if (step === 0) return (
+    <button onClick={() => setStep(1)} className="w-full py-2.5 rounded-xl text-sm font-600 disp" style={{ background: `${C.red}18`, color: C.red, border: `1px solid ${C.red}44` }}>
+      Excluir jogador
+    </button>
+  );
+  return (
+    <div className="rounded-xl p-3 space-y-2" style={{ background: `${C.red}12`, border: `1px solid ${C.red}55` }}>
+      <p className="text-xs text-center" style={{ color: C.red }}>Isso remove o jogador e <b>apaga o histórico de presença e gols</b> dele. Não dá pra desfazer.</p>
+      <div className="flex gap-2">
+        <button onClick={() => setStep(0)} className="flex-1 py-2 rounded-lg text-sm" style={{ background: C.surf2, color: C.muted }}>Cancelar</button>
+        <button onClick={() => onRemove(playerId)} className="flex-1 py-2 rounded-lg text-sm font-700" style={{ background: C.red, color: "#160B08" }}>Confirmar exclusão</button>
+      </div>
     </div>
   );
 }

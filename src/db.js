@@ -70,6 +70,16 @@ export async function setPlayerAtivo(id, ativo) {
   const { error } = await supabase.from("players").update({ ativo }).eq("id", id);
   if (error) throw error;
 }
+export async function updatePlayer(id, p) {
+  const { error } = await supabase.from("players")
+    .update({ nome: p.nome, apelido: p.apelido, numero: p.numero ?? null, goleiro: p.goleiro })
+    .eq("id", id);
+  if (error) throw error;
+}
+export async function deletePlayer(id) {
+  const { error } = await supabase.from("players").delete().eq("id", id);
+  if (error) throw error;
+}
 
 /* ============================================================
    SESSIONS
