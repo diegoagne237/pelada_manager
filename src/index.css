@@ -3,5 +3,33 @@
 @tailwind components;
 @tailwind utilities;
 
-html, body, #root { height: 100%; }
-body { margin: 0; background: #0B120E; }
+html, body, #root {
+  height: 100%;
+  /* ocupa a área toda incluindo notch/home-bar no iOS */
+  min-height: 100dvh;
+}
+body {
+  margin: 0;
+  background: #0B120E;
+  /* remove bounce scroll no iOS */
+  overscroll-behavior: none;
+  /* evita zoom acidental ao dar duplo-tap */
+  touch-action: manipulation;
+  /* sem text-select em UI de app */
+  -webkit-user-select: none;
+  user-select: none;
+}
+/* safe-area para notch (iPhone X+) */
+.pm-root {
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+}
+/* inputs e textareas podem ser selecionados */
+input, textarea {
+  -webkit-user-select: text;
+  user-select: text;
+}
+/* sem highlight azul ao tocar botões no mobile */
+* { -webkit-tap-highlight-color: transparent; }
