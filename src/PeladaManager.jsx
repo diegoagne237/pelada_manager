@@ -288,11 +288,12 @@ export default function PeladaManager() {
           <main className="max-w-xl mx-auto px-4 pt-6" style={{ paddingBottom: 96 }}>
             {tab === "dashboard" && (
               <Dashboard games={games} players={players} onStart={createSession}
-                onOpen={setActiveId} onEncerrar={encerrar} />
+                onOpen={setActiveId} onEncerrar={encerrar} onShowColetes={() => setTab("coletes_hist")} />
             )}
-            {tab === "temporada" && <Temporada games={games} players={players} caixinha={caixinha} />}
+            {tab === "temporada" && <Temporada games={games} players={players} caixinha={caixinha} onShowColetes={() => setTab("coletes_hist")} />}
             {tab === "caixinha" && <Caixinha caixinha={caixinha} onAdd={addLancamento} onSetSaldo={setSaldoManual} />}
             {tab === "elenco" && <Elenco players={players} games={games} onAdd={addPlayer} onToggle={toggleAtivo} onEdit={editPlayer} onRemove={removePlayer} />}
+            {tab === "coletes_hist" && <ColetesHist games={games} players={players} onBack={() => setTab("dashboard")} />}
           </main>
           <BottomNav tab={tab} setTab={setTab} />
         </>
@@ -304,7 +305,11 @@ export default function PeladaManager() {
 /* ============================================================
    DASHBOARD
    ============================================================ */
-function Dashboard({ games, players, onStart, onOpen, onEncerrar }) {
+function Dashboard({ games, players, onStart, onOpen, onEncerrar, onShowColetes }) {
+  // sessão mais recente com coleteLavar definido e não devolvido
+  const pendente = games.find((g) => g.coleteLavar && !g.coleteDevolvido);
+  const quemPendente = pendente ? players.find((p) => p.id === pendente.coleteLavar) : null;
+
   return (
     <div>
       <header className="mb-5">
@@ -315,11 +320,36 @@ function Dashboard({ games, players, onStart, onOpen, onEncerrar }) {
       </header>
 
       <button onClick={onStart}
-        className="w-full rounded-2xl py-5 mb-7 active:scale-[.98] transition-transform"
+        className="w-full rounded-2xl py-5 mb-5 active:scale-[.98] transition-transform"
         style={{ background: `linear-gradient(180deg, ${C.amber}, #E0AC28)`, color: "#241B00", boxShadow: `0 8px 30px -8px ${C.amber}66` }}>
         <div className="disp text-xl font-700 tracking-wide">＋ INICIAR NOVA SESSÃO</div>
         <div className="text-xs font-600 opacity-70 mt-0.5">Abrir a lista da próxima segunda</div>
       </button>
+
+      {/* STATUS DO COLETE — acima dos jogos */}
+      {games.some((g) => g.coleteLavar) && (
+        <div className="rounded-xl px-4 py-3 mb-5 flex items-center justify-between gap-3"
+          style={{ background: C.surf, border: `1px solid ${quemPendente ? C.amber + "66" : C.line}` }}>
+          <div className="flex items-center gap-2.5">
+            <div className="w-2 h-2 rounded-full flex-shrink-0"
+              style={{ background: quemPendente ? C.amber : C.green }} />
+            <div>
+              <div className="text-[11px]" style={{ color: C.muted }}>🦺 Coletes com</div>
+              <div className="font-600 text-sm" style={{ color: quemPendente ? C.amber : C.green }}>
+                {quemPendente ? quemPendente.apelido : (() => {
+                  const ult = games.find((g) => g.coleteLavar);
+                  const p = ult && players.find((x) => x.id === ult.coleteLavar);
+                  return p ? `${p.apelido} · devolvido ✓` : "—";
+                })()}
+              </div>
+            </div>
+          </div>
+          <button onClick={onShowColetes} className="text-[11px] underline flex-shrink-0"
+            style={{ background: "none", border: "none", cursor: "pointer", color: C.amber, fontFamily: "Inter, sans-serif", padding: 0 }}>
+            ver histórico
+          </button>
+        </div>
+      )}
 
       <h2 className="disp text-sm font-600 tracking-widest mb-3" style={{ color: C.muted }}>JOGOS</h2>
       {players.length === 0 && (
@@ -622,9 +652,89 @@ function PlayerDeleteButton({ playerId, onRemove }) {
 }
 
 /* ============================================================
+   HISTÓRICO DE LAVAGEM DOS COLETES
+   ============================================================ */
+function ColetesHist({ games, players, onBack }) {
+  const name = (id) => players.find((p) => p.id === id);
+
+  // lista cronológica: jogos que têm coleteLavar, mais recente primeiro
+  const chrono = games
+    .filter((g) => g.coleteLavar)
+    .sort((a, b) => new Date(b.date) - new Date(a.date));
+
+  // contagem por jogador (só quem levou ≥1×), ordenado por mais vezes
+  const contagem = {};
+  chrono.forEach((g) => {
+    contagem[g.coleteLavar] = (contagem[g.coleteLavar] || 0) + 1;
+  });
+  const rankLavou = Object.entries(contagem)
+    .map(([id, n]) => ({ p: name(id), n }))
+    .filter((x) => x.p)
+    .sort((a, b) => b.n - a.n);
+
+  return (
+    <div>
+      {/* header com voltar */}
+      <div className="flex items-center gap-3 mb-1" style={{ paddingTop: 4 }}>
+        <button onClick={onBack} className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0"
+          style={{ background: C.surf2, border: `1px solid ${C.line}`, color: C.chalk, fontSize: 18 }}>‹</button>
+        <h1 className="disp text-xl font-700">🧺 LAVAGEM DOS COLETES</h1>
+      </div>
+      <p className="text-xs mb-5" style={{ color: C.muted, paddingLeft: 2 }}>
+        Histórico de quem levou os coletes pra lavar após cada pelada.
+      </p>
+
+      {chrono.length === 0 ? (
+        <div className="rounded-xl p-6 text-center text-sm" style={{ background: C.surf, border: `1px solid ${C.line}`, color: C.muted }}>
+          Nenhum colete registrado ainda.
+        </div>
+      ) : (
+        <>
+          {/* CRONOLÓGICO */}
+          <div className="disp text-xs font-600 tracking-widest mb-2" style={{ color: C.muted }}>HISTÓRICO</div>
+          <div className="rounded-xl overflow-hidden mb-6" style={{ border: `1px solid ${C.line}` }}>
+            {chrono.map((g, i) => {
+              const p = name(g.coleteLavar);
+              const devolvido = g.coleteDevolvido;
+              return (
+                <div key={g.id} className="flex items-center gap-3 px-4 py-3"
+                  style={{ background: C.surf, borderBottom: i < chrono.length - 1 ? `1px solid ${C.line}` : "none" }}>
+                  <div className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: C.amber }} />
+                  <span className="text-xs shrink-0" style={{ color: C.muted, minWidth: 90 }}>
+                    {new Date(g.date).toLocaleDateString("pt-BR", { day: "2-digit", month: "short", year: "numeric" })}
+                  </span>
+                  <span className="font-600 text-sm flex-1">{p ? p.apelido : "—"}</span>
+                  <span className="text-[10px] px-1.5 py-0.5 rounded"
+                    style={{ background: devolvido ? `${C.green}18` : `${C.red}18`, color: devolvido ? C.green : C.red, border: `1px solid ${devolvido ? C.green : C.red}44` }}>
+                    {devolvido ? "devolvido" : "pendente"}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* CONTAGEM */}
+          <div className="disp text-xs font-600 tracking-widest mb-2" style={{ color: C.muted }}>CONTAGEM</div>
+          <div className="rounded-xl overflow-hidden" style={{ border: `1px solid ${C.line}` }}>
+            {rankLavou.map((x, i) => (
+              <div key={x.p.id} className="flex items-center gap-3 px-4 py-3"
+                style={{ background: C.surf, borderBottom: i < rankLavou.length - 1 ? `1px solid ${C.line}` : "none" }}>
+                <span className="font-600 text-sm flex-1">{x.p.apelido}</span>
+                <span className="disp font-700 text-base" style={{ color: C.amber }}>{x.n}</span>
+                <span className="text-xs" style={{ color: C.muted }}>{x.n === 1 ? "vez" : "vezes"}</span>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+/* ============================================================
    TEMPORADA (relatório / dashboard de estatísticas)
    ============================================================ */
-function Temporada({ games, players, caixinha }) {
+function Temporada({ games, players, caixinha, onShowColetes }) {
   const finalized = games.filter((g) => g.jogoFinalizado);
   const map = {};
   players.forEach((p) => (map[p.id] = { p, jogos: 0, gols: 0, v: 0, e: 0, d: 0, colete: 0, lavou: 0 }));
@@ -708,13 +818,17 @@ function Temporada({ games, players, caixinha }) {
           <div key={x.p.id} className="rounded-xl px-3 py-2.5" style={{ background: C.surf, border: `1px solid ${C.line}` }}>
             <div className="flex items-center justify-between mb-1.5">
               <span className="font-700 text-sm">{x.p.apelido} {x.p.goleiro && "🧤"}</span>
-              <span className="text-xs" style={{ color: C.muted }}><b style={{ color: C.amber }}>{x.colete}</b> de {x.jogos} jogos{x.lavou > 0 && ` · levou p/ lavar ${x.lavou}×`}</span>
+              <span className="text-xs" style={{ color: C.muted }}><b style={{ color: C.amber }}>{x.colete}</b> de {x.jogos} jogos</span>
             </div>
             <div className="h-1.5 rounded-full overflow-hidden" style={{ background: C.surf2 }}>
               <div className="h-full rounded-full" style={{ width: `${(x.colete / maxColete) * 100}%`, background: C.amber }} />
             </div>
           </div>
         ))}
+        <button onClick={onShowColetes} className="w-full mt-2 py-3 rounded-xl disp font-600 text-sm flex items-center justify-center gap-2 active:scale-[.98] transition-transform"
+          style={{ background: C.surf2, color: C.amber, border: `1px solid ${C.line}` }}>
+          🧺 Histórico de Lavagem dos Coletes
+        </button>
       </Section>
 
       {/* devedores */}
