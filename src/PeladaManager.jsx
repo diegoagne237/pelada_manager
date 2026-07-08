@@ -1383,8 +1383,8 @@ function PhasePagamentos({ s, players, a, goTo }) {
                 </div>
                 <span className="disp text-sm font-700" style={{ color: pago ? C.green : C.muted }}>{pago ? "✓ PAGO" : `deve ${brl(s.valorJogador)}`}</span>
               </button>
-              {/* linha secundária: marcar/desmarcar aluguel + custo */}
-              {!locked && (
+              {/* linha secundária: marcar/desmarcar aluguel + custo — só para goleiros fixos */}
+              {!locked && p.goleiro && (
                 <div className="flex items-center gap-2 px-3 pb-2.5 pt-1" style={{ background: isGo ? `${C.blue}08` : C.surf }}>
                   <button onClick={() => toggleGoleiro(p)}
                     className="text-xs px-2 py-1 rounded font-600"
@@ -1411,7 +1411,7 @@ function PhasePagamentos({ s, players, a, goTo }) {
                 </div>
               )}
               {/* locked: só mostra o custo se é goleiro */}
-              {locked && isGo && goEntry && (
+              {locked && isGo && goEntry && p.goleiro && (
                 <div className="px-3 pb-2 text-xs" style={{ color: C.blue, background: `${C.blue}08` }}>Aluguel: −{brl(goEntry.custo)}</div>
               )}
             </div>
