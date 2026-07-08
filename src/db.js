@@ -23,7 +23,7 @@ function mapSession(r) {
     desistencias: desis.map((x) => ({ playerId: x.player_id, at: x.desistiu_at })),
     teams: hasTeams ? { A: teamA, B: teamB, coleteTeam: r.colete_team || "A" } : null,
     pagos: conf.filter((x) => x.pago).map((x) => x.player_id),
-    goleirosAluguel: (r.goleiros_aluguel || []).map((x) => ({ id: x.id, nome: x.nome, custo: Number(x.custo) })),
+    goleirosAluguel: (r.goleiros_aluguel || []).map((x) => ({ id: x.id, playerId: x.player_id || null, nome: x.nome, custo: Number(x.custo) })),
     goals: (r.goals || []).slice().sort((a, b) => new Date(a.created_at) - new Date(b.created_at))
       .map((x) => ({ id: x.id, team: x.team, playerId: x.player_id, minute: x.minute, ownGoal: x.own_goal })),
     startedAt: r.started_at, durationSec: r.duration_sec, jogoFinalizado: r.jogo_finalizado,
@@ -170,12 +170,16 @@ export async function deleteGoal(id) {
    ============================================================ */
 export async function addGoleiro(sessionId, g) {
   const { data, error } = await supabase.from("goleiros_aluguel")
-    .insert({ session_id: sessionId, nome: g.nome, custo: g.custo }).select().single();
+    .insert({ session_id: sessionId, player_id: g.playerId || null, nome: g.nome, custo: g.custo }).select().single();
   if (error) throw error;
-  return { id: data.id, nome: data.nome, custo: Number(data.custo) };
+  return { id: data.id, playerId: data.player_id || null, nome: data.nome, custo: Number(data.custo) };
 }
 export async function removeGoleiro(id) {
   const { error } = await supabase.from("goleiros_aluguel").delete().eq("id", id);
+  if (error) throw error;
+}
+export async function updateGoleiroCusto(id, custo) {
+  const { error } = await supabase.from("goleiros_aluguel").update({ custo }).eq("id", id);
   if (error) throw error;
 }
 

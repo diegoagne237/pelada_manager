@@ -231,6 +231,10 @@ export default function PeladaManager() {
       upGame(id, (g) => ({ ...g, goleirosAluguel: g.goleirosAluguel.filter((x) => x.id !== gid) }));
       if (!String(gid).startsWith("tmp_")) guard(db.removeGoleiro(gid));
     },
+    updateGoleiroCusto: (sessionId, gid, custo) => {
+      upGame(sessionId, (g) => ({ ...g, goleirosAluguel: g.goleirosAluguel.map((x) => x.id === gid ? { ...x, custo } : x) }));
+      guard(db.updateGoleiroCusto(gid, custo));
+    },
     concluirPagamento: (id) => {
       const g = gById(id); const custo = g.goleirosAluguel.reduce((acc, x) => acc + x.custo, 0);
       const delta = g.pagos.length * g.valorJogador - g.valorQuadra - custo;
@@ -1306,20 +1310,43 @@ function PhaseColetes({ s, players, a, goTo }) {
 function PhasePagamentos({ s, players, a, goTo }) {
   const presentes = s.presentes.map((x) => players.find((p) => p.id === x.playerId)).filter(Boolean)
     .sort((a, b) => a.apelido.localeCompare(b.apelido, "pt-BR"));
-  const [gForm, setGForm] = useState(false); const [gNome, setGNome] = useState(""); const [gCusto, setGCusto] = useState(String(s.custoGoleiro));
   const locked = s.pagamentoConcluido;
 
-  const togglePago = (id) => { if (locked) return; a.togglePago(s.id, id); };
-  const addGoleiro = () => { if (locked) return; const c = parseFloat(String(gCusto).replace(",", ".")) || s.custoGoleiro; a.addGoleiro(s.id, { nome: gNome.trim() || "Goleiro", custo: c }); setGNome(""); setGCusto(String(s.custoGoleiro)); setGForm(false); };
-  const rmGoleiro = (id) => { if (locked) return; a.removeGoleiro(s.id, id); };
+  // IDs já marcados como goleiro de aluguel nesta sessão
+  const goIds = new Set(s.goleirosAluguel.map((g) => g.playerId).filter(Boolean));
 
-  const custoGoleiros = s.goleirosAluguel.reduce((a, g) => a + g.custo, 0);
+  const togglePago = (id) => { if (locked) return; a.togglePago(s.id, id); };
+
+  // Marcar/desmarcar goleiro de aluguel diretamente do card do jogador
+  const toggleGoleiro = (player) => {
+    if (locked) return;
+    const existing = s.goleirosAluguel.find((g) => g.playerId === player.id);
+    if (existing) {
+      a.removeGoleiro(s.id, existing.id);
+    } else {
+      a.addGoleiro(s.id, { playerId: player.id, nome: player.apelido, custo: s.custoGoleiro });
+    }
+  };
+
+  // Editar custo de goleiro já marcado
+  const [editCusto, setEditCusto] = useState(null); // { id, valor }
+  const salvarCusto = () => {
+    if (!editCusto) return;
+    const v = parseFloat(String(editCusto.valor).replace(",", "."));
+    if (isNaN(v) || v < 0) return;
+    // optimistic
+    a.updateGoleiroCusto(s.id, editCusto.id, v);
+    setEditCusto(null);
+  };
+
+  const custoGoleiros = s.goleirosAluguel.reduce((acc, g) => acc + g.custo, 0);
   const arrecadado = s.pagos.length * s.valorJogador;
   const saldo = arrecadado - s.valorQuadra - custoGoleiros;
   const devedores = presentes.length - s.pagos.length;
 
   return (
     <div>
+      {/* FECHAMENTO */}
       <div className="rounded-2xl p-4 mb-4" style={{ background: C.surf, border: `1px solid ${saldo < 0 ? C.red : C.line}` }}>
         <div className="disp text-xs tracking-widest mb-3" style={{ color: C.muted }}>FECHAMENTO DA SESSÃO {locked && "· APLICADO"}</div>
         <div className="space-y-1.5 text-sm">
@@ -1334,38 +1361,60 @@ function PhasePagamentos({ s, players, a, goTo }) {
         {!locked && <div className="text-[11px] mt-2" style={{ color: C.muted }}>A caixinha só muda quando você confirmar o pagamento.</div>}
       </div>
 
-      <div className="mb-4">
-        <div className="flex items-center justify-between mb-2">
-          <h2 className="disp font-600 tracking-wide" style={{ color: C.muted }}>🧤 GOLEIROS DE ALUGUEL</h2>
-          {!locked && <button onClick={() => setGForm((v) => !v)} className="text-xs px-2 py-1 rounded" style={{ background: C.surf2, color: C.amber }}>＋</button>}
-        </div>
-        {s.goleirosAluguel.map((g) => (
-          <div key={g.id} className="flex items-center justify-between rounded-lg px-3 py-2 mb-1.5 text-sm" style={{ background: C.surf, border: `1px solid ${C.line}` }}>
-            <span>{g.nome}</span>
-            <div className="flex items-center gap-2"><span style={{ color: C.red }}>−{brl(g.custo)}</span>{!locked && <button onClick={() => rmGoleiro(g.id)} style={{ color: C.muted }}>✕</button>}</div>
-          </div>
-        ))}
-        {gForm && (
-          <div className="rounded-lg p-3 flex gap-2" style={{ background: C.surf, border: `1px solid ${C.line}` }}>
-            <input value={gNome} onChange={(e) => setGNome(e.target.value)} placeholder="Nome" className="flex-1 rounded px-2 py-2 text-sm" style={{ background: C.bg, color: C.chalk, border: `1px solid ${C.line}` }} />
-            <input value={gCusto} onChange={(e) => setGCusto(e.target.value)} type="number" placeholder="R$" className="w-20 rounded px-2 py-2 text-sm" style={{ background: C.bg, color: C.chalk, border: `1px solid ${C.line}` }} />
-            <button onClick={addGoleiro} className="px-3 rounded font-600" style={{ background: C.green, color: "#06231A" }}>ok</button>
-          </div>
-        )}
-      </div>
-
+      {/* LISTA DE PRESENTES — pago + goleiro de aluguel integrados */}
       <div className="flex items-center justify-between mb-2">
-        <h2 className="disp font-600 tracking-wide" style={{ color: C.green }}>PAGARAM · {s.pagos.length}/{presentes.length}</h2>
+        <h2 className="disp font-600 tracking-wide" style={{ color: C.green }}>PAGAMENTOS · {s.pagos.length}/{presentes.length}</h2>
         {devedores > 0 && <span className="text-xs" style={{ color: C.red }}>{devedores} devendo</span>}
       </div>
       <div className="space-y-2 mb-4">
         {presentes.map((p) => {
           const pago = s.pagos.includes(p.id);
+          const isGo = goIds.has(p.id);
+          const goEntry = s.goleirosAluguel.find((g) => g.playerId === p.id);
           return (
-            <button key={p.id} onClick={() => togglePago(p.id)} className="w-full flex items-center justify-between rounded-lg px-3 py-3 active:scale-[.98]" style={{ background: pago ? `${C.green}18` : C.surf, border: `1px solid ${pago ? C.green : C.line}`, opacity: locked && !pago ? 0.5 : 1 }}>
-              <span className="font-600 text-sm">{p.apelido} {p.goleiro && "🧤"}</span>
-              <span className="disp text-sm font-700" style={{ color: pago ? C.green : C.muted }}>{pago ? "✓ PAGO" : `deve ${brl(s.valorJogador)}`}</span>
-            </button>
+            <div key={p.id} className="rounded-xl overflow-hidden" style={{ border: `1px solid ${isGo ? C.blue : pago ? C.green : C.line}` }}>
+              {/* linha principal: nome + status pago */}
+              <button onClick={() => togglePago(p.id)} className="w-full flex items-center justify-between px-3 py-3 active:scale-[.98]"
+                style={{ background: isGo ? `${C.blue}12` : pago ? `${C.green}18` : C.surf, opacity: locked && !pago ? 0.5 : 1 }}>
+                <div className="flex items-center gap-2">
+                  <span className="font-600 text-sm">{p.apelido}</span>
+                  {isGo && <span className="text-xs px-1.5 py-0.5 rounded disp font-600" style={{ background: C.blue, color: "#04121C" }}>ALUGUEL</span>}
+                  {!isGo && p.goleiro && <span>🧤</span>}
+                </div>
+                <span className="disp text-sm font-700" style={{ color: pago ? C.green : C.muted }}>{pago ? "✓ PAGO" : `deve ${brl(s.valorJogador)}`}</span>
+              </button>
+              {/* linha secundária: marcar/desmarcar aluguel + custo */}
+              {!locked && (
+                <div className="flex items-center gap-2 px-3 pb-2.5 pt-1" style={{ background: isGo ? `${C.blue}08` : C.surf }}>
+                  <button onClick={() => toggleGoleiro(p)}
+                    className="text-xs px-2 py-1 rounded font-600"
+                    style={{ background: isGo ? `${C.blue}30` : C.surf2, color: isGo ? C.blue : C.muted }}>
+                    🧤 {isGo ? "Remover aluguel" : "Goleiro aluguel"}
+                  </button>
+                  {isGo && goEntry && (
+                    editCusto?.id === goEntry.id ? (
+                      <div className="flex items-center gap-1 ml-auto">
+                        <input autoFocus value={editCusto.valor} onChange={(e) => setEditCusto({ ...editCusto, valor: e.target.value })}
+                          onKeyDown={(e) => e.key === "Enter" && salvarCusto()}
+                          type="number" className="w-16 rounded px-2 py-1 text-xs" style={{ background: C.bg, color: C.chalk, border: `1px solid ${C.blue}` }} />
+                        <button onClick={salvarCusto} className="text-xs px-2 py-1 rounded font-600" style={{ background: C.blue, color: "#04121C" }}>ok</button>
+                        <button onClick={() => setEditCusto(null)} className="text-xs px-1" style={{ color: C.muted }}>✕</button>
+                      </div>
+                    ) : (
+                      <button onClick={() => setEditCusto({ id: goEntry.id, valor: String(goEntry.custo) })}
+                        className="ml-auto text-xs px-2 py-1 rounded"
+                        style={{ background: C.surf2, color: C.red }}>
+                        −{brl(goEntry.custo)} ✏️
+                      </button>
+                    )
+                  )}
+                </div>
+              )}
+              {/* locked: só mostra o custo se é goleiro */}
+              {locked && isGo && goEntry && (
+                <div className="px-3 pb-2 text-xs" style={{ color: C.blue, background: `${C.blue}08` }}>Aluguel: −{brl(goEntry.custo)}</div>
+              )}
+            </div>
           );
         })}
       </div>

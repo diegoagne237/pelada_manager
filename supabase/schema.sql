@@ -65,6 +65,7 @@ create table if not exists goals (
 create table if not exists goleiros_aluguel (
   id          uuid primary key default gen_random_uuid(),
   session_id  uuid not null references sessions(id) on delete cascade,
+  player_id   uuid references players(id) on delete set null,  -- jogador cadastrado (opcional para compatibilidade)
   nome        text not null default 'Goleiro',
   custo       numeric not null default 25
 );
